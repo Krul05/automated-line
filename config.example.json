@@ -1,0 +1,89 @@
+{
+  "hold_seconds": 3.0,
+  "loop": true,
+  "departure_grace_seconds": 1.5,
+  "scheduler_interval_seconds": 0.1,
+  "event_limit": 200,
+  "stations": [
+    {
+      "index": 1,
+      "name": "Station 1",
+      "port": "COM1",
+      "baudrate": 9600,
+      "group": 1
+    },
+    {
+      "index": 2,
+      "name": "Station 2",
+      "port": "COM2",
+      "baudrate": 9600,
+      "group": 1
+    },
+    {
+      "index": 3,
+      "name": "Station 3",
+      "port": "COM11",
+      "baudrate": 9600,
+      "group": 1
+    },
+    {
+      "index": 4,
+      "name": "Station 4",
+      "port": "COM12",
+      "baudrate": 9600,
+      "group": 1
+    },
+    {
+      "index": 5,
+      "name": "Station 5",
+      "port": "COM15",
+      "baudrate": 9600,
+      "group": 1
+    },
+    {
+      "index": 6,
+      "name": "Station 6",
+      "port": "COM16",
+      "baudrate": 9600,
+      "group": 1
+    }
+  ],
+  "modes": [
+    {
+      "id": "stop_2_4",
+      "name": "Станции 2 и 4 · 3 с",
+      "stationDelays": {
+        "1": 0.0,
+        "2": 3.0,
+        "3": 0.0,
+        "4": 3.0,
+        "5": 0.0,
+        "6": 0.0
+      }
+    },
+    {
+      "id": "stop_all",
+      "name": "Все станции · 3 с",
+      "stationDelays": {
+        "1": 3.0,
+        "2": 3.0,
+        "3": 3.0,
+        "4": 3.0,
+        "5": 3.0,
+        "6": 3.0
+      }
+    },
+    {
+      "id": "mode_1781740699001",
+      "name": "Режим 3",
+      "stationDelays": {
+        "1": 1.0,
+        "2": 2.0,
+        "3": 3.0,
+        "4": 4.0,
+        "5": 5.0,
+        "6": 6.0
+      }
+    }
+  ]
+}

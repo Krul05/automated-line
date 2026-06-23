@@ -1,0 +1,6 @@
+__pycache__/
+*.pyc
+mock-server.*.log
+config.json
+.venv/
+.idea/

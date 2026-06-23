@@ -1,2 +1,7 @@
-pyserial>=3.5
-pdoc
+# Requires Python 3.6+.
+#
+# Runtime dependency for Moxa Virtual COM / serial port access.
+pyserial>=3.5,<4
+
+# Dataclasses are built into Python 3.7+, but Python 3.6 needs the backport.
+dataclasses==0.8; python_version == "3.6"

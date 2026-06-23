@@ -16,13 +16,15 @@
 
 ## Запуск
 
-1. Установите зависимость:
+1. Используйте Python 3.6 или новее.
+
+2. Установите зависимость:
 
    ```powershell
    pip install -r requirements.txt
    ```
 
-2. Скопируйте пример конфигурации при необходимости:
+3. Скопируйте пример конфигурации при необходимости:
 
    ```powershell
    copy config.example.json config.json
@@ -30,13 +32,13 @@
 
    Если `config.json` отсутствует, сервис при первом запуске сам создаст его из `config.example.json` или из встроенной конфигурации COM1-COM6.
 
-3. Запустите сервис:
+4. Запустите сервис:
 
    ```powershell
    python main.py --config config.json --host 0.0.0.0 --port 8080
    ```
 
-4. Откройте:
+5. Откройте:
 
    ```text
    http://localhost:8080

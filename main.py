@@ -4,8 +4,6 @@
 станции в mock-режим, запускает потоки контроллера и поднимает веб-интерфейс/API.
 """
 
-from __future__ import annotations
-
 import argparse
 import signal
 import sys

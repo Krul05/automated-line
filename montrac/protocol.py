@@ -6,9 +6,8 @@
 Контрольная сумма считается как XOR полей group, id_high, id_low и command.
 """
 
-from __future__ import annotations
-
 from dataclasses import dataclass
+from typing import List
 
 START_BYTE = 0x01
 END_BYTE = 0x03
@@ -84,13 +83,13 @@ def parse_frame(frame: bytes) -> IrmMessage:
     return IrmMessage(group=frame[1], shuttle_id=shuttle_id, command=frame[4], raw=bytes(frame))
 
 
-def extract_messages(buffer: bytearray) -> list[IrmMessage]:
+def extract_messages(buffer: bytearray) -> List[IrmMessage]:
     """Извлечь все валидные IRM-сообщения из изменяемого буфера serial-порта.
 
     Невалидные начальные байты отбрасываются. Неполный кадр в конце остается
     в буфере, чтобы следующее чтение из serial-порта могло его дозаполнить.
     """
-    messages: list[IrmMessage] = []
+    messages: List[IrmMessage] = []
     cursor = 0
 
     while len(buffer) - cursor >= FRAME_LENGTH:

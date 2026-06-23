@@ -198,12 +198,10 @@ POST /api/mock/presence
 ``/api/config/*`` и ``/api/mock/presence`` без отдельной защиты.
 """
 
-from __future__ import annotations
-
 import json
 from http import HTTPStatus
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
-from typing import Any
+from typing import Any, Dict, Type
 
 from .controller import MontracController, OperatingMode
 
@@ -227,7 +225,7 @@ def _safe_print(message: str) -> None:
         pass
 
 
-def _make_handler(controller: MontracController) -> type[BaseHTTPRequestHandler]:
+def _make_handler(controller: MontracController) -> Type[BaseHTTPRequestHandler]:
     """Создать обработчик запросов, привязанный к конкретному контроллеру.
 
     Обработчик предоставляет:
@@ -281,7 +279,7 @@ def _make_handler(controller: MontracController) -> type[BaseHTTPRequestHandler]
             except (KeyError, TypeError, ValueError) as exc:
                 self._send_json({"ok": False, "error": str(exc)}, HTTPStatus.BAD_REQUEST)
 
-        def _read_json(self) -> dict[str, Any]:
+        def _read_json(self) -> Dict[str, Any]:
             """Прочитать и декодировать JSON-тело запроса."""
             length = int(self.headers.get("Content-Length", "0") or "0")
             if length == 0:
@@ -289,7 +287,7 @@ def _make_handler(controller: MontracController) -> type[BaseHTTPRequestHandler]
             raw = self.rfile.read(length)
             return json.loads(raw.decode("utf-8"))
 
-        def _send_json(self, payload: dict[str, Any], status: HTTPStatus = HTTPStatus.OK) -> None:
+        def _send_json(self, payload: Dict[str, Any], status: HTTPStatus = HTTPStatus.OK) -> None:
             """Отправить JSON-ответ с заголовками запрета кэширования."""
             raw = json.dumps(payload, ensure_ascii=False).encode("utf-8")
             self.send_response(status)
@@ -316,7 +314,7 @@ def _make_handler(controller: MontracController) -> type[BaseHTTPRequestHandler]
     return Handler
 
 
-def build_index_html(initial_state: dict[str, Any]) -> str:
+def build_index_html(initial_state: Dict[str, Any]) -> str:
     """Встроить начальное состояние контроллера в одностраничный UI оператора."""
     state_json = json.dumps(initial_state, ensure_ascii=False).replace("</", "<\\/")
     return INDEX_HTML.replace("__INITIAL_STATE_JSON__", state_json)

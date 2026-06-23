@@ -5,8 +5,6 @@
 автоматические режимы и сохраняет редактируемую конфигурацию станций/режимов.
 """
 
-from __future__ import annotations
-
 import json
 import threading
 import time
@@ -14,7 +12,7 @@ from dataclasses import dataclass, field
 from datetime import datetime
 from enum import Enum
 from pathlib import Path
-from typing import Any
+from typing import Any, Dict, List, Optional, Set, Tuple, Union
 
 from .protocol import COMMAND_PRESENCE, COMMAND_START_FORWARD, IrmMessage, build_frame, extract_messages
 
@@ -54,15 +52,15 @@ class ModeConfig:
 
     id: str
     name: str
-    station_delays: dict[int, float] = field(default_factory=dict)
+    station_delays: Dict[int, float] = field(default_factory=dict)
 
 
 @dataclass
 class LineConfig:
     """Постоянная конфигурация всей линии и поведения планировщика."""
 
-    stations: list[StationConfig]
-    modes: list[ModeConfig] = field(default_factory=list)
+    stations: List[StationConfig]
+    modes: List[ModeConfig] = field(default_factory=list)
     hold_seconds: float = 3.0
     loop: bool = True
     departure_grace_seconds: float = 1.5
@@ -80,15 +78,15 @@ class StationState:
     group: int
     connected: bool = False
     occupied: bool = False
-    shuttle_id: int | None = None
-    waiting_since: float | None = None
-    last_seen: float | None = None
-    last_raw: str | None = None
+    shuttle_id: Optional[int] = None
+    waiting_since: Optional[float] = None
+    last_seen: Optional[float] = None
+    last_raw: Optional[str] = None
     message_count: int = 0
-    last_error: str | None = None
-    last_command_hex: str | None = None
-    release_sent_at: float | None = None
-    released_shuttle_id: int | None = None
+    last_error: Optional[str] = None
+    last_command_hex: Optional[str] = None
+    release_sent_at: Optional[float] = None
+    released_shuttle_id: Optional[int] = None
 
 
 @dataclass
@@ -97,10 +95,10 @@ class SegmentState:
 
     from_station: int
     to_station: int
-    occupied_by: int | None = None
-    since: float | None = None
-    shuttle_ids: list[int] = field(default_factory=list)
-    shuttle_since: dict[int, float] = field(default_factory=dict)
+    occupied_by: Optional[int] = None
+    since: Optional[float] = None
+    shuttle_ids: List[int] = field(default_factory=list)
+    shuttle_since: Dict[int, float] = field(default_factory=dict)
 
     def shuttle_count(self) -> int:
         """Вернуть количество тележек, которые сейчас числятся в перегоне."""
@@ -164,7 +162,7 @@ class SerialWorker(threading.Thread):
         self._write_lock = threading.Lock()
         self._serial: Any = None
         self._buffer = bytearray()
-        self.sent_frames: list[bytes] = []
+        self.sent_frames: List[bytes] = []
 
     def run(self) -> None:
         """Открывать порт станции, читать IRM-кадры и переподключаться при сбоях."""
@@ -243,22 +241,22 @@ class MontracController:
     режимам и API-вызовам.
     """
 
-    def __init__(self, config: LineConfig, config_path: Path | None = None, force_mock: bool = False):
+    def __init__(self, config: LineConfig, config_path: Optional[Path] = None, force_mock: bool = False):
         self.config = config
         self.config_path = config_path
         self.force_mock = force_mock
-        self.active_mode_id: str | None = None
+        self.active_mode_id: Optional[str] = None
         self._lock = threading.RLock()
         self._stop = threading.Event()
-        self._scheduler: threading.Thread | None = None
+        self._scheduler: Optional[threading.Thread] = None
         self._started = False
-        self._station_order: list[int] = []
-        self._station_config: dict[int, StationConfig] = {}
-        self.stations: dict[int, StationState] = {}
-        self.segments: dict[tuple[int, int], SegmentState] = {}
-        self.workers: dict[int, SerialWorker] = {}
-        self._mode_config: dict[str, ModeConfig] = {}
-        self.events: list[Event] = []
+        self._station_order: List[int] = []
+        self._station_config: Dict[int, StationConfig] = {}
+        self.stations: Dict[int, StationState] = {}
+        self.segments: Dict[Tuple[int, int], SegmentState] = {}
+        self.workers: Dict[int, SerialWorker] = {}
+        self._mode_config: Dict[str, ModeConfig] = {}
+        self.events: List[Event] = []
         self._rebuild_runtime_locked(config.stations)
         self._rebuild_modes_locked(config.modes)
 
@@ -287,7 +285,7 @@ class MontracController:
             self._scheduler.join(timeout=1)
         self._log("info", "Montrac controller stopped")
 
-    def set_connection(self, station_index: int, connected: bool, error: str | None) -> None:
+    def set_connection(self, station_index: int, connected: bool, error: Optional[str]) -> None:
         """Обновить видимое состояние подключения для потока одной станции."""
         with self._lock:
             if station_index not in self.stations:
@@ -303,7 +301,7 @@ class MontracController:
             elif not connected and error:
                 state.last_error = error
 
-    def set_mode(self, mode: str | OperatingMode | None) -> dict[str, Any]:
+    def set_mode(self, mode: Optional[Union[str, OperatingMode]]) -> Dict[str, Any]:
         """Выбрать автоматический режим или вернуться в режим ожидания."""
         with self._lock:
             mode_id = mode.value if isinstance(mode, OperatingMode) else mode
@@ -318,7 +316,7 @@ class MontracController:
             self._auto_release_due_locked(time.time())
             return self.snapshot_locked()
 
-    def manual_next(self) -> dict[str, Any]:
+    def manual_next(self) -> Dict[str, Any]:
         """Отправить первую ожидающую тележку, прошедшую проверку безопасности."""
         with self._lock:
             release = self._release_next_locked("manual button")
@@ -326,7 +324,7 @@ class MontracController:
             state["lastAction"] = release
             return state
 
-    def release_station(self, station_index: int) -> dict[str, Any]:
+    def release_station(self, station_index: int) -> Dict[str, Any]:
         """Отправить тележку, которая сейчас ожидает на указанной станции."""
         with self._lock:
             release = self._release_station_locked(station_index, "station button")
@@ -334,7 +332,7 @@ class MontracController:
             state["lastAction"] = release
             return state
 
-    def update_station_config(self, raw_stations: list[dict[str, Any]]) -> dict[str, Any]:
+    def update_station_config(self, raw_stations: List[Dict[str, Any]]) -> Dict[str, Any]:
         """Заменить и сохранить конфигурацию станций, когда линия пустая."""
         with self._lock:
             if self._line_has_active_shuttles_locked():
@@ -363,7 +361,7 @@ class MontracController:
             state["saved"] = True
             return state
 
-    def update_modes_config(self, raw_modes: list[dict[str, Any]]) -> dict[str, Any]:
+    def update_modes_config(self, raw_modes: List[Dict[str, Any]]) -> Dict[str, Any]:
         """Заменить конфигурацию режимов, нормализовать задержки и сохранить."""
         with self._lock:
             modes = normalize_modes_for_stations(parse_modes(raw_modes, self.config.stations), self.config.stations, self.config.hold_seconds)
@@ -394,7 +392,7 @@ class MontracController:
             else:
                 self._log("debug", f"{station.name} received command {message.command} for shuttle {message.shuttle_id}")
 
-    def inject_presence(self, station_index: int, shuttle_id: int, group: int = 1) -> dict[str, Any]:
+    def inject_presence(self, station_index: int, shuttle_id: int, group: int = 1) -> Dict[str, Any]:
         """Подставить синтетическое сообщение присутствия для проверок без железа."""
         frame = build_frame(group, shuttle_id, COMMAND_PRESENCE)
         self.on_message(station_index, IrmMessage(group=group, shuttle_id=shuttle_id, command=COMMAND_PRESENCE, raw=frame))
@@ -459,7 +457,7 @@ class MontracController:
             if now - station.waiting_since >= hold_seconds:
                 self._release_station_locked(station_index, f"mode {mode.name}")
 
-    def _release_next_locked(self, reason: str) -> dict[str, Any]:
+    def _release_next_locked(self, reason: str) -> Dict[str, Any]:
         occupied = [
             station
             for station in self.stations.values()
@@ -467,7 +465,7 @@ class MontracController:
         ]
         occupied.sort(key=lambda item: (item.waiting_since or 0, item.index))
 
-        blockers: list[dict[str, Any]] = []
+        blockers: List[Dict[str, Any]] = []
         for station in occupied:
             ok, blocker = self._can_release_locked(station.index)
             if ok:
@@ -478,7 +476,7 @@ class MontracController:
         self._log("warning", message)
         return {"released": False, "message": message, "blockers": blockers}
 
-    def _release_station_locked(self, station_index: int, reason: str) -> dict[str, Any]:
+    def _release_station_locked(self, station_index: int, reason: str) -> Dict[str, Any]:
         """Отправить START FORWARD и перенести тележку из станции в перегон."""
         ok, blocker = self._can_release_locked(station_index)
         station = self.stations.get(station_index)
@@ -535,7 +533,7 @@ class MontracController:
             "commandHex": frame.hex().upper(),
         }
 
-    def _can_release_locked(self, station_index: int) -> tuple[bool, str | None]:
+    def _can_release_locked(self, station_index: int) -> Tuple[bool, Optional[str]]:
         """Проверить, может ли станция безопасно отправить текущую тележку."""
         if station_index not in self.stations:
             return False, "station does not exist"
@@ -558,7 +556,7 @@ class MontracController:
 
         return True, None
 
-    def next_station(self, station_index: int) -> int | None:
+    def next_station(self, station_index: int) -> Optional[int]:
         """Вернуть номер следующей станции согласно настроенному маршруту."""
         if station_index not in self._station_order:
             return None
@@ -567,12 +565,12 @@ class MontracController:
             return self._station_order[position + 1]
         return self._station_order[0] if self.config.loop and self._station_order else None
 
-    def snapshot(self) -> dict[str, Any]:
+    def snapshot(self) -> Dict[str, Any]:
         """Вернуть JSON-сериализуемый снимок всего состояния контроллера."""
         with self._lock:
             return self.snapshot_locked()
 
-    def snapshot_locked(self) -> dict[str, Any]:
+    def snapshot_locked(self) -> Dict[str, Any]:
         """Собрать снимок состояния; вызывающий код уже должен держать блокировку."""
         active_mode = self._mode_config.get(self.active_mode_id) if self.active_mode_id else None
         return {
@@ -588,7 +586,7 @@ class MontracController:
             "events": [self._event_snapshot(event) for event in self.events[-50:]][::-1],
         }
 
-    def _station_snapshot(self, station_index: int) -> dict[str, Any]:
+    def _station_snapshot(self, station_index: int) -> Dict[str, Any]:
         station = self.stations[station_index]
         can_release, blocker = self._can_release_locked(station_index)
         return {
@@ -608,7 +606,7 @@ class MontracController:
             "releaseBlocker": blocker,
         }
 
-    def _segment_snapshot(self, segment: SegmentState) -> dict[str, Any]:
+    def _segment_snapshot(self, segment: SegmentState) -> Dict[str, Any]:
         shuttle_count = segment.shuttle_count()
         shuttle_ids = list(segment.shuttle_ids)
         return {
@@ -620,10 +618,10 @@ class MontracController:
             "occupiedSeconds": round(time.time() - segment.since, 1) if segment.since else None,
         }
 
-    def _event_snapshot(self, event: Event) -> dict[str, Any]:
+    def _event_snapshot(self, event: Event) -> Dict[str, Any]:
         return {"at": _format_time(event.at), "level": event.level, "message": event.message}
 
-    def _mode_snapshot(self, mode: ModeConfig) -> dict[str, Any]:
+    def _mode_snapshot(self, mode: ModeConfig) -> Dict[str, Any]:
         return {
             "id": mode.id,
             "name": mode.name,
@@ -643,7 +641,7 @@ class MontracController:
         if len(self.events) > self.config.event_limit:
             del self.events[: len(self.events) - self.config.event_limit]
 
-    def _rebuild_runtime_locked(self, stations: list[StationConfig]) -> None:
+    def _rebuild_runtime_locked(self, stations: List[StationConfig]) -> None:
         normalized = sorted(stations, key=lambda item: item.index)
         if self.force_mock:
             for station in normalized:
@@ -668,7 +666,7 @@ class MontracController:
         }
         self.workers = {station.index: SerialWorker(self, station) for station in normalized}
 
-    def _rebuild_modes_locked(self, modes: list[ModeConfig]) -> None:
+    def _rebuild_modes_locked(self, modes: List[ModeConfig]) -> None:
         normalized = normalize_modes_for_stations(modes, self.config.stations, self.config.hold_seconds)
         self.config.modes = normalized
         self._mode_config = {mode.id: mode for mode in normalized}
@@ -680,12 +678,12 @@ class MontracController:
             segment.shuttle_count() > 0 for segment in self.segments.values()
         )
 
-    def _normalize_station_config_locked(self, raw_stations: list[dict[str, Any]]) -> list[StationConfig]:
+    def _normalize_station_config_locked(self, raw_stations: List[Dict[str, Any]]) -> List[StationConfig]:
         if not raw_stations:
             raise ValueError("Добавьте хотя бы одну станцию")
 
-        seen_indexes: set[int] = set()
-        stations: list[StationConfig] = []
+        seen_indexes: Set[int] = set()
+        stations: List[StationConfig] = []
         for raw in raw_stations:
             index = int(raw.get("index", 0))
             if index <= 0:
@@ -718,7 +716,7 @@ class MontracController:
         return sorted(stations, key=lambda item: item.index)
 
 
-def _format_time(value: float | None) -> str | None:
+def _format_time(value: Optional[float]) -> Optional[str]:
     """Отформатировать Unix timestamp для JSON-снимков."""
     if value is None:
         return None
@@ -731,7 +729,7 @@ def default_config() -> LineConfig:
     return LineConfig(stations=stations, modes=default_modes(stations, 3.0))
 
 
-def default_modes(stations: list[StationConfig], hold_seconds: float) -> list[ModeConfig]:
+def default_modes(stations: List[StationConfig], hold_seconds: float) -> List[ModeConfig]:
     """Создать два базовых режима для переданного списка станций."""
     station_indexes = {station.index for station in stations}
     return [
@@ -748,15 +746,15 @@ def default_modes(stations: list[StationConfig], hold_seconds: float) -> list[Mo
     ]
 
 
-def parse_modes(raw_modes: Any, stations: list[StationConfig]) -> list[ModeConfig]:
+def parse_modes(raw_modes: Any, stations: List[StationConfig]) -> List[ModeConfig]:
     """Разобрать объекты режимов из JSON-конфига или тела API-запроса."""
     if raw_modes is None:
         return []
     if not isinstance(raw_modes, list):
         raise ValueError("modes must be a list")
 
-    modes: list[ModeConfig] = []
-    used_ids: set[str] = set()
+    modes: List[ModeConfig] = []
+    used_ids: Set[str] = set()
     for position, raw in enumerate(raw_modes, start=1):
         if not isinstance(raw, dict):
             raise ValueError("mode must be an object")
@@ -775,9 +773,9 @@ def parse_modes(raw_modes: Any, stations: list[StationConfig]) -> list[ModeConfi
     return modes
 
 
-def parse_station_delays(raw_delays: Any) -> dict[int, float]:
+def parse_station_delays(raw_delays: Any) -> Dict[int, float]:
     """Разобрать задержки станций из dict- или list-формата."""
-    delays: dict[int, float] = {}
+    delays: Dict[int, float] = {}
     if isinstance(raw_delays, dict):
         iterator = raw_delays.items()
     elif isinstance(raw_delays, list):
@@ -800,15 +798,15 @@ def parse_station_delays(raw_delays: Any) -> dict[int, float]:
 
 
 def normalize_modes_for_stations(
-    modes: list[ModeConfig], stations: list[StationConfig], hold_seconds: float
-) -> list[ModeConfig]:
+    modes: List[ModeConfig], stations: List[StationConfig], hold_seconds: float
+) -> List[ModeConfig]:
     """Убедиться, что у каждого режима уникальный ID и задержка для всех станций."""
     if not modes:
         modes = default_modes(stations, hold_seconds)
 
     station_indexes = [station.index for station in stations]
-    normalized: list[ModeConfig] = []
-    used_ids: set[str] = set()
+    normalized: List[ModeConfig] = []
+    used_ids: Set[str] = set()
     for position, mode in enumerate(modes, start=1):
         mode_id = mode.id or slugify_mode_id(mode.name, position)
         if mode_id in used_ids:
@@ -876,7 +874,7 @@ def load_config(path: Path) -> LineConfig:
     )
 
 
-def load_or_create_config(path: Path) -> tuple[LineConfig, Path]:
+def load_or_create_config(path: Path) -> Tuple[LineConfig, Path]:
     """Загрузить конфиг или создать его из config.example.json/встроенных настроек."""
     if path.exists():
         return load_config(path), path

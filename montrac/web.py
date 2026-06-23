@@ -200,14 +200,21 @@ POST /api/mock/presence
 
 import json
 from http import HTTPStatus
-from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
+from http.server import BaseHTTPRequestHandler, HTTPServer
+from socketserver import ThreadingMixIn
 from typing import Any, Dict, Type
 
 from .controller import MontracController, OperatingMode
 
 
+class ThreadingHTTPServer(ThreadingMixIn, HTTPServer):
+    """Совместимая многопоточная версия HTTPServer для Python 3.6+."""
+
+    daemon_threads = True
+
+
 def run_http_server(controller: MontracController, host: str, port: int) -> None:
-    """Запустить блокирующий ThreadingHTTPServer для переданного контроллера."""
+    """Запустить блокирующий многопоточный HTTP-сервер для контроллера."""
     handler = _make_handler(controller)
     server = ThreadingHTTPServer((host, port), handler)
     _safe_print(f"Montrac web service is running at http://{host}:{port}")

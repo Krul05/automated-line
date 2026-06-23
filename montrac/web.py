@@ -677,6 +677,542 @@ INDEX_HTML = """<!doctype html>
     </section>
   </main>
   <script>
+    var configDirty = false;
+    var modesDirty = false;
+    var lastStations = [];
+    var lastModes = [];
+    var busy = false;
+    var renderedConfigKey = "";
+    var renderedModesKey = "";
+    window.initialState = __INITIAL_STATE_JSON__;
+
+    function toArray(items) {
+      var result = [];
+      for (var i = 0; i < items.length; i += 1) result.push(items[i]);
+      return result;
+    }
+
+    function text(value) {
+      return value === null || value === undefined || value === "" ? "—" : String(value);
+    }
+
+    function setText(element, value) {
+      if ("textContent" in element) element.textContent = value;
+      else element.innerText = value;
+    }
+
+    function trimText(value) {
+      return text(value).replace(/^\\s+|\\s+$/g, "");
+    }
+
+    function escapeHtml(value) {
+      var map = { "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" };
+      return text(value).replace(/[&<>"']/g, function(char) { return map[char]; });
+    }
+
+    function shortTime(value) {
+      var parsed;
+      if (!value) return "—";
+      parsed = new Date(value);
+      if (isNaN(parsed.getTime())) return value;
+      return parsed.toLocaleTimeString();
+    }
+
+    function hasClass(element, className) {
+      return (" " + element.className + " ").indexOf(" " + className + " ") !== -1;
+    }
+
+    function addClass(element, className) {
+      if (!hasClass(element, className)) element.className += (element.className ? " " : "") + className;
+    }
+
+    function removeClass(element, className) {
+      element.className = (" " + element.className + " ").replace(" " + className + " ", " ").replace(/^\\s+|\\s+$/g, "");
+    }
+
+    function setClass(element, className, enabled) {
+      if (enabled) addClass(element, className);
+      else removeClass(element, className);
+    }
+
+    function findParentWithAttr(element, attrName) {
+      while (element && element !== document) {
+        if (element.getAttribute && element.getAttribute(attrName) !== null) return element;
+        element = element.parentNode;
+      }
+      return null;
+    }
+
+    function findParentWithClass(element, className) {
+      while (element && element !== document) {
+        if (element.className && hasClass(element, className)) return element;
+        element = element.parentNode;
+      }
+      return null;
+    }
+
+    function preventDefault(event) {
+      if (event.preventDefault) event.preventDefault();
+      event.returnValue = false;
+    }
+
+    function stopPropagation(event) {
+      if (event.stopPropagation) event.stopPropagation();
+      event.cancelBubble = true;
+    }
+
+    function on(element, eventName, handler) {
+      if (element.addEventListener) {
+        element.addEventListener(eventName, handler, false);
+      } else if (element.attachEvent) {
+        element.attachEvent("on" + eventName, function() { handler(window.event); });
+      }
+    }
+
+    function requestJson(method, path, payload, onSuccess, onError) {
+      var xhr = new XMLHttpRequest();
+      xhr.open(method, path, true);
+      xhr.setRequestHeader("Accept", "application/json");
+      if (payload !== null && payload !== undefined) {
+        xhr.setRequestHeader("Content-Type", "application/json");
+      }
+      xhr.onreadystatechange = function() {
+        var body;
+        if (xhr.readyState !== 4) return;
+        try {
+          body = xhr.responseText ? JSON.parse(xhr.responseText) : {};
+        } catch (error) {
+          body = { ok: false, error: "Сервер вернул некорректный JSON" };
+        }
+        if (xhr.status >= 200 && xhr.status < 300) {
+          onSuccess(body);
+        } else if (onError) {
+          onError(new Error(body.error || ("HTTP " + xhr.status)));
+        }
+      };
+      xhr.send(payload === null || payload === undefined ? null : JSON.stringify(payload));
+    }
+
+    function postJson(path, payload, onSuccess, onError) {
+      requestJson("POST", path, payload, onSuccess, onError);
+    }
+
+    function findStationByIndex(index) {
+      for (var i = 0; i < lastStations.length; i += 1) {
+        if (lastStations[i].index === index) return lastStations[i];
+      }
+      return null;
+    }
+
+    function setBusy(value) {
+      var buttons = document.querySelectorAll(".action-button, .config-button, .icon-button");
+      var releaseButtons = document.querySelectorAll(".release-button");
+      var i;
+      var station;
+      busy = value;
+      for (i = 0; i < buttons.length; i += 1) buttons[i].disabled = value;
+      for (i = 0; i < releaseButtons.length; i += 1) {
+        station = findStationByIndex(Number(releaseButtons[i].getAttribute("data-release-station")));
+        releaseButtons[i].disabled = value || !station || !station.canRelease;
+      }
+    }
+
+    function loadState() {
+      requestJson("GET", "/api/state", null, render, function(error) {
+        setConfigStatus("Не удалось загрузить состояние: " + error.message, true);
+      });
+    }
+
+    function render(state) {
+      if (!state || !state.stations) {
+        setConfigStatus("Сервер вернул состояние без списка станций", true);
+        return;
+      }
+      setText(document.getElementById("mode"), "Режим: " + (state.activeModeName || "ожидание"));
+      lastStations = state.stations || [];
+      lastModes = state.modes || [];
+      renderModeActions(lastModes, state.activeModeId);
+      renderStations(state.stations || []);
+      renderSegments(state.segments || []);
+      renderEvents(state.events || []);
+      renderModesConfig(lastModes, lastStations);
+      renderConfig(state.stations || []);
+    }
+
+    function renderModeActions(modes, activeModeId) {
+      var root = document.getElementById("modeActions");
+      var button;
+      var i;
+      root.innerHTML = "";
+      for (i = 0; i < modes.length; i += 1) {
+        button = document.createElement("button");
+        button.className = "action-button mode-button" + (modes[i].id === activeModeId ? " active" : "");
+        button.type = "button";
+        button.setAttribute("data-mode-id", modes[i].id);
+        setText(button, modes[i].name);
+        root.appendChild(button);
+      }
+      button = document.createElement("button");
+      button.className = "action-button stop-button";
+      button.type = "button";
+      button.setAttribute("data-mode-id", "");
+      setText(button, "Остановить режим");
+      root.appendChild(button);
+    }
+
+    function renderStations(stations) {
+      var root = document.getElementById("stations");
+      var item;
+      var html;
+      var station;
+      var i;
+      root.innerHTML = "";
+      for (i = 0; i < stations.length; i += 1) {
+        station = stations[i];
+        item = document.createElement("article");
+        item.className = "station";
+        setClass(item, "disconnected", !station.connected);
+        setClass(item, "occupied", !!station.occupied);
+        setClass(item, "ready", !!station.canRelease);
+        html = ''
+          + '<div class="station-title">'
+          + '<span>' + escapeHtml(station.name) + '</span>'
+          + '<i class="dot ' + (station.connected ? "on" : "") + '"></i>'
+          + '</div>'
+          + '<div class="kv">'
+          + '<span>Порт</span><span>' + escapeHtml(station.port) + '</span>'
+          + '<span>Тележка</span><span>' + escapeHtml(station.shuttleId) + '</span>'
+          + '<span>Ожидание</span><span>' + (station.waitingSeconds === null ? "—" : station.waitingSeconds + " с") + '</span>'
+          + '<span>Последний</span><span>' + shortTime(station.lastSeen) + '</span>'
+          + '<span>HEX</span><span>' + escapeHtml(station.lastRaw) + '</span>'
+          + '<span>Блок</span><span>' + escapeHtml(station.releaseBlocker) + '</span>'
+          + '<span>Ошибка</span><span class="error-text">' + escapeHtml(station.lastError) + '</span>'
+          + '</div>'
+          + '<button class="release-button" data-release-station="' + station.index + '"'
+          + (station.canRelease && !busy ? "" : " disabled") + '>Запустить</button>';
+        item.innerHTML = html;
+        root.appendChild(item);
+      }
+    }
+
+    function renderSegments(segments) {
+      var root = document.getElementById("segments");
+      var item;
+      var segment;
+      var ids;
+      var count;
+      var isBusy;
+      var label;
+      var i;
+      root.innerHTML = "";
+      for (i = 0; i < segments.length; i += 1) {
+        segment = segments[i];
+        item = document.createElement("div");
+        ids = Object.prototype.toString.call(segment.occupiedByIds) === "[object Array]"
+          ? segment.occupiedByIds
+          : (segment.occupiedBy !== null && segment.occupiedBy !== undefined ? [segment.occupiedBy] : []);
+        count = typeof segment.shuttleCount === "number" && isFinite(segment.shuttleCount) ? segment.shuttleCount : ids.length;
+        isBusy = count > 0;
+        label = isBusy ? (count + " тел. · ID " + escapeHtml(ids.join(", "))) : "свободен";
+        item.className = "segment";
+        item.innerHTML = '<span>' + escapeHtml(segment.from) + ' → ' + escapeHtml(segment.to) + '</span>'
+          + '<span class="' + (isBusy ? "busy" : "free") + '">' + label + '</span>';
+        root.appendChild(item);
+      }
+    }
+
+    function renderEvents(events) {
+      var root = document.getElementById("events");
+      var item;
+      var limit = Math.min(events.length, 12);
+      var i;
+      root.innerHTML = "";
+      for (i = 0; i < limit; i += 1) {
+        item = document.createElement("div");
+        item.className = "event";
+        item.innerHTML = '<time>' + shortTime(events[i].at) + '</time><span>' + escapeHtml(events[i].message) + '</span>';
+        root.appendChild(item);
+      }
+    }
+
+    function stationConfigKey(stations) {
+      var parts = [];
+      for (var i = 0; i < stations.length; i += 1) {
+        parts.push(stations[i].index + ":" + stations[i].name + ":" + stations[i].port);
+      }
+      return parts.join("|");
+    }
+
+    function renderConfig(stations) {
+      var root;
+      var i;
+      if (configDirty) return;
+      if (stationConfigKey(stations) === renderedConfigKey && document.querySelectorAll(".config-row").length === stations.length) {
+        return;
+      }
+      renderedConfigKey = stationConfigKey(stations);
+      root = document.getElementById("configRows");
+      root.innerHTML = "";
+      for (i = 0; i < stations.length; i += 1) addConfigRow(stations[i]);
+      if (stations.length === 0) {
+        setConfigStatus("Список станций пуст. Нажмите «Добавить» или проверьте config.json.", true);
+      }
+    }
+
+    function addConfigRow(station) {
+      var root = document.getElementById("configRows");
+      var item = document.createElement("div");
+      var nameId = "station-" + station.index + "-name";
+      var portId = "station-" + station.index + "-port";
+      item.className = "config-row";
+      item.setAttribute("data-index", station.index);
+      item.innerHTML = ''
+        + '<div class="station-number">#' + station.index + '</div>'
+        + '<label for="' + nameId + '">Название'
+        + '<input id="' + nameId + '" name="' + nameId + '" autocomplete="off" data-field="name" value="' + escapeHtml(station.name) + '">'
+        + '</label>'
+        + '<label for="' + portId + '">COM порт'
+        + '<input id="' + portId + '" name="' + portId + '" autocomplete="off" data-field="port" value="' + escapeHtml(station.port) + '">'
+        + '</label>'
+        + '<button class="icon-button" type="button" data-delete-station="' + station.index + '" title="Удалить">×</button>';
+      root.appendChild(item);
+    }
+
+    function addNextStationRow() {
+      var rows = collectConfigRows();
+      var nextIndex = 1;
+      for (var i = 0; i < rows.length; i += 1) nextIndex = Math.max(nextIndex, rows[i].index + 1);
+      addConfigRow({ index: nextIndex, name: "COM" + nextIndex, port: "COM" + nextIndex });
+      configDirty = true;
+      renderedConfigKey = "";
+      setConfigStatus("Есть несохранённые изменения");
+      return false;
+    }
+
+    function collectConfigRows() {
+      var rows = document.querySelectorAll(".config-row");
+      var result = [];
+      var row;
+      for (var i = 0; i < rows.length; i += 1) {
+        row = rows[i];
+        result.push({
+          index: Number(row.getAttribute("data-index")),
+          name: trimText(row.querySelector('[data-field="name"]').value),
+          port: trimText(row.querySelector('[data-field="port"]').value)
+        });
+      }
+      return result;
+    }
+
+    function modesConfigKey(modes) {
+      var safeModes = [];
+      for (var i = 0; i < modes.length; i += 1) {
+        safeModes.push({ id: modes[i].id, name: modes[i].name, stationDelays: modes[i].stationDelays });
+      }
+      return JSON.stringify(safeModes);
+    }
+
+    function renderModesConfig(modes, stations) {
+      var root;
+      var i;
+      if (modesDirty) return;
+      if (modesConfigKey(modes) === renderedModesKey && document.querySelectorAll(".mode-row").length === modes.length) {
+        return;
+      }
+      renderedModesKey = modesConfigKey(modes);
+      root = document.getElementById("modeRows");
+      root.innerHTML = "";
+      for (i = 0; i < modes.length; i += 1) addModeRow(modes[i], stations);
+      if (modes.length === 0) setModesStatus("Список режимов пуст. Нажмите «Добавить».", true);
+    }
+
+    function addModeRow(mode, stations) {
+      var root = document.getElementById("modeRows");
+      var item = document.createElement("div");
+      var nameId = "mode-" + mode.id + "-name";
+      var delays = mode.stationDelays || {};
+      var html = '';
+      var station;
+      var inputId;
+      var seconds;
+      var i;
+      item.className = "mode-row";
+      item.setAttribute("data-mode-id", mode.id);
+      html += '<div class="mode-header">'
+        + '<label for="' + escapeHtml(nameId) + '">Название режима'
+        + '<input id="' + escapeHtml(nameId) + '" name="' + escapeHtml(nameId) + '" autocomplete="off" data-mode-field="name" value="' + escapeHtml(mode.name) + '">'
+        + '</label>'
+        + '<button class="icon-button" type="button" data-delete-mode="' + escapeHtml(mode.id) + '" title="Удалить">×</button>'
+        + '</div><div class="delay-grid">';
+      for (i = 0; i < stations.length; i += 1) {
+        station = stations[i];
+        inputId = "mode-" + mode.id + "-station-" + station.index;
+        seconds = delays[String(station.index)] !== undefined ? delays[String(station.index)] : 0;
+        html += '<div class="delay-cell">'
+          + '<label for="' + escapeHtml(inputId) + '">' + escapeHtml(station.name)
+          + '<input id="' + escapeHtml(inputId) + '" name="' + escapeHtml(inputId) + '" autocomplete="off" type="number" min="0" step="0.1" data-delay-station="' + station.index + '" value="' + escapeHtml(seconds) + '">'
+          + '</label></div>';
+      }
+      html += '</div>';
+      item.innerHTML = html;
+      root.appendChild(item);
+    }
+
+    function addNextModeRow() {
+      var rows = collectModeRows();
+      var nextIndex = rows.length + 1;
+      var modeId = "mode_" + new Date().getTime();
+      var stationDelays = {};
+      for (var i = 0; i < lastStations.length; i += 1) {
+        stationDelays[String(lastStations[i].index)] = 0;
+      }
+      addModeRow({ id: modeId, name: "Режим " + nextIndex, stationDelays: stationDelays }, lastStations);
+      modesDirty = true;
+      renderedModesKey = "";
+      setModesStatus("Есть несохранённые изменения");
+      return false;
+    }
+
+    function collectModeRows() {
+      var rows = document.querySelectorAll(".mode-row");
+      var result = [];
+      var row;
+      var inputs;
+      var stationDelays;
+      var i;
+      var j;
+      for (i = 0; i < rows.length; i += 1) {
+        row = rows[i];
+        inputs = row.querySelectorAll("[data-delay-station]");
+        stationDelays = {};
+        for (j = 0; j < inputs.length; j += 1) {
+          stationDelays[inputs[j].getAttribute("data-delay-station")] = Number(inputs[j].value || 0);
+        }
+        result.push({
+          id: row.getAttribute("data-mode-id"),
+          name: trimText(row.querySelector('[data-mode-field="name"]').value),
+          stationDelays: stationDelays
+        });
+      }
+      return result;
+    }
+
+    function setConfigStatus(message, isError) {
+      var status = document.getElementById("configStatus");
+      setText(status, message);
+      setClass(status, "error-text", !!isError);
+    }
+
+    function setModesStatus(message, isError) {
+      var status = document.getElementById("modesStatus");
+      setText(status, message);
+      setClass(status, "error-text", !!isError);
+    }
+
+    on(document.getElementById("modeActions"), "click", function(event) {
+      var button = findParentWithAttr(event.target || event.srcElement, "data-mode-id");
+      if (!button) return;
+      setBusy(true);
+      postJson("/api/actions/select_mode", { modeId: button.getAttribute("data-mode-id") || null }, function(state) {
+        render(state);
+        setBusy(false);
+      }, function(error) {
+        setConfigStatus(error.message, true);
+        setBusy(false);
+      });
+    });
+
+    on(document.getElementById("stations"), "click", function(event) {
+      var button = findParentWithAttr(event.target || event.srcElement, "data-release-station");
+      if (!button) return;
+      setBusy(true);
+      postJson("/api/actions/release_station", { station: Number(button.getAttribute("data-release-station")) }, function(state) {
+        render(state);
+        setBusy(false);
+      }, function(error) {
+        setConfigStatus(error.message, true);
+        setBusy(false);
+      });
+    });
+
+    on(document.getElementById("configRows"), "input", function() {
+      configDirty = true;
+      setConfigStatus("Есть несохранённые изменения");
+    });
+
+    on(document.getElementById("configRows"), "click", function(event) {
+      var button = findParentWithAttr(event.target || event.srcElement, "data-delete-station");
+      var row;
+      if (!button) return;
+      row = findParentWithClass(button, "config-row");
+      if (row && row.parentNode) row.parentNode.removeChild(row);
+      configDirty = true;
+      renderedConfigKey = "";
+      setConfigStatus("Есть несохранённые изменения");
+    });
+
+    on(document.getElementById("modeRows"), "input", function() {
+      modesDirty = true;
+      setModesStatus("Есть несохранённые изменения");
+    });
+
+    on(document.getElementById("modeRows"), "click", function(event) {
+      var button = findParentWithAttr(event.target || event.srcElement, "data-delete-mode");
+      var row;
+      if (!button) return;
+      row = findParentWithClass(button, "mode-row");
+      if (row && row.parentNode) row.parentNode.removeChild(row);
+      modesDirty = true;
+      renderedModesKey = "";
+      setModesStatus("Есть несохранённые изменения");
+    });
+
+    on(document.getElementById("addMode"), "click", function(event) {
+      preventDefault(event);
+      addNextModeRow();
+    });
+
+    on(document.getElementById("modesForm"), "submit", function(event) {
+      preventDefault(event);
+      setBusy(true);
+      postJson("/api/config/modes", { modes: collectModeRows() }, function(state) {
+        modesDirty = false;
+        renderedModesKey = "";
+        render(state);
+        setModesStatus("Сохранено");
+        setBusy(false);
+      }, function(error) {
+        setModesStatus(error.message, true);
+        setBusy(false);
+      });
+    });
+
+    on(document.getElementById("addStation"), "click", function(event) {
+      preventDefault(event);
+      stopPropagation(event);
+      if (!this.disabled) addNextStationRow();
+    });
+
+    on(document.getElementById("configForm"), "submit", function(event) {
+      preventDefault(event);
+      setBusy(true);
+      postJson("/api/config/stations", { stations: collectConfigRows() }, function(state) {
+        configDirty = false;
+        renderedConfigKey = "";
+        render(state);
+        setConfigStatus("Сохранено");
+        setBusy(false);
+      }, function(error) {
+        setConfigStatus(error.message, true);
+        setBusy(false);
+      });
+    });
+
+    render(window.initialState);
+    loadState();
+    setInterval(loadState, 1000);
+  </script>
+  <script type="text/plain" id="modern-ui-script-disabled">
     let configDirty = false;
     let modesDirty = false;
     let lastStations = [];
